@@ -1,27 +1,22 @@
-use std::{fs, io::Write};
+use std::fs;
+use std::io::Write;
 
-use learning::Sequence;
-use linealg::{Shape, Tensor, Vector};
-use modules::{Linear, MSELoss, ReLU, Translation};
-use rand::{thread_rng, Rng};
-
-mod learning;
-mod linealg;
-mod modules;
+use hermostui::{
+    learning::Sequence,
+    linealg::{Shape, Tensor},
+    modules::{Linear, MSELoss, ReLU, Translation},
+};
 
 fn approchfun(x: f32) -> f32 {
-    (x * 2.0).sin() * 2.0 - 1.0
-    // fn sigmoid(x:f32) -> f32 {
-
-    //     1.0 / (1.0 + (-x).exp())
-    // }
-
-    // sigmoid(x * 0.5 + 3.) * 2.
+    (x * 2.0).sin() * 6.0 - 1.0
 }
 
 fn main() {
     let mut seq: Sequence = Sequence::new(
         vec![
+            Box::new(Linear),
+            Box::new(Translation),
+            Box::new(ReLU),
             Box::new(Linear),
             Box::new(Translation),
             Box::new(ReLU),
@@ -44,6 +39,9 @@ fn main() {
             Tensor::rand(Shape::M(16, 16)),
             Tensor::rand(Shape::V(16)),
             Tensor::N,
+            Tensor::rand(Shape::M(16, 16)),
+            Tensor::rand(Shape::V(16)),
+            Tensor::N,
             Tensor::rand(Shape::M(1, 16)),
             Tensor::rand(Shape::V(1)),
         ],
@@ -56,14 +54,14 @@ fn main() {
     } else {
         println!("Training from scratch");
     }
-    let lr = 4e-3;
+    let lr = 1e-3;
     for i in 0..10000 {
         seq.zero_grad();
         for _ in 0..10 {
-            let x = thread_rng().gen_range(-10.0..10.);
+            let x = rand::thread_rng().gen_range(-10.0..10.0);
             let y = approchfun(x);
-            seq.set_input(Tensor::V(Vector(vec![x])));
-            seq.set_target(Tensor::V(Vector(vec![y])));
+            seq.set_input(Tensor::S(x));
+            seq.set_target(Tensor::S(y));
             seq.forward();
             seq.backprop();
         }
@@ -72,21 +70,30 @@ fn main() {
         if i % 1000 == 0 {
             let (_, loss) = seq.get_result();
             println!("epoch {i}, loss {loss}");
+            if loss.is_nan() {
+                println!("loss is nan, something went wrong, exit");
+                return;
+            }
+        }
+
+        if i % 3000 == 2999 {
+            println!("Saving params");
+            let binary = serde_pickle::to_vec(&seq.get_params(), Default::default()).unwrap();
+            if let Ok(mut file) = std::fs::File::create("params.pkl") {
+                file.write_all(&binary).unwrap();
+            } else {
+                println!("Failed to save params");
+            }
+            plot(&mut seq).unwrap();
         }
     }
     println!("Done");
-    for p in seq.get_params() {
-        print!("{p}");
-    }
-    let binary = serde_pickle::to_vec(&seq.get_params(), Default::default()).unwrap();
-    if let Ok(mut file) = std::fs::File::create("params.pkl") {
-        file.write_all(&binary).unwrap();
-    }
-    maisak(seq).unwrap();
+
 }
 
 use plotters::prelude::*;
-fn maisak(mut seq: Sequence) -> Result<(), Box<dyn std::error::Error>> {
+use rand::Rng;
+fn plot(seq: &mut Sequence) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new("plot.bmp", (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;
     let mut chart = ChartBuilder::on(&root)
@@ -111,7 +118,7 @@ fn maisak(mut seq: Sequence) -> Result<(), Box<dyn std::error::Error>> {
     chart
         .draw_series(LineSeries::new(
             (-1000..=1000).map(|x| x as f32 / 100.0).map(|x| {
-                seq.set_input(Tensor::V(Vector(vec![x])));
+                seq.set_input(Tensor::S(x));
                 seq.forward();
                 (x, seq.get_result().0.as_vector().0[0])
             }),
