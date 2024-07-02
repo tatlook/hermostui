@@ -3,7 +3,10 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Vector(pub Vec<f32>);
 
 impl Vector {
@@ -103,7 +106,7 @@ impl Display for Vector {
 }
 
 /// Contains list of basis vectors
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Matrix(Vec<Vector>);
 
 impl Matrix {
@@ -203,7 +206,7 @@ impl Display for Shape {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Tensor {
     /// Empty
     N, 
@@ -263,6 +266,33 @@ impl Tensor {
             Shape::M(r, c) => Tensor::M(Matrix(vec![Vector(vec![0.0; r]); c])),
         }
     }
+
+    pub fn rand(shape: Shape) -> Self {
+        let mut rng = rand::thread_rng();
+        let range = -1.0..1.0;
+        match shape {
+            Shape::N => Tensor::N,
+            Shape::S => Tensor::S(rng.gen_range(range)),
+            Shape::V(l) => {
+                let mut v = vec![];
+                for _ in 0..l {
+                    v.push(rng.gen_range(range.clone()));
+                }
+                Tensor::V(Vector(v))
+            },
+            Shape::M(r, c) => {
+                let mut li = vec![];
+                for _ in 0..c {
+                    let mut v = vec![];
+                    for _ in 0..r {
+                        v.push(rng.gen_range(range.clone()));
+                    }
+                    li.push(Vector(v));
+                }
+                Tensor::M(Matrix(li))
+            },
+        }
+    }
 }
 
 impl Mul<Tensor> for Tensor {
@@ -308,6 +338,21 @@ impl Sub<Tensor> for Tensor {
 impl SubAssign<Tensor> for Tensor {
     fn sub_assign(&mut self, rhs: Tensor) {
         *self = self.clone() - rhs
+    }
+}
+
+impl Add for Tensor {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self - Tensor::S(-1.0) * rhs
+    }
+}
+
+
+impl AddAssign for Tensor {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.clone() + rhs
     }
 }
 

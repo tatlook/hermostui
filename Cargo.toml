@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8.4"
+plotters = "0.3.6"
+serde = { version = "1.0", features = ["derive"] }
+serde-pickle = "1.0"

@@ -18,21 +18,24 @@ impl Function for Linear {
         Tensor::V(matrix.apply(&input.as_vector()))
     }
     fn backward(&self, param: &Tensor, input: &Tensor, delta: &Tensor) -> (Tensor, Tensor) {
-        let matrix = param.as_matrix();
         let input = input.as_vector();
-        let matrix_t = matrix.transpose();
         let mut delta = delta.as_vector();
+
         let mut param_grad: Vec<Vector> = vec![];
-        for a in input.0.iter() {
+        for a in input.0 {
             let mut grad: Vec<f32> = vec![];
             for d in delta.0.iter() {
                 grad.push(d * a);
             }
             param_grad.push(Vector(grad));
         }
-        assert_eq!(Matrix::new(param_grad.clone()).shape(), matrix.shape());
+        let param_grad = Matrix::new(param_grad);
+
+        let matrix = param.as_matrix();
+        let matrix_t = matrix.transpose();
+        assert_eq!(param_grad.clone().shape(), matrix.shape());
         delta = matrix_t.apply(&delta);
-        (Tensor::M(Matrix::new(param_grad)), Tensor::V(delta))
+        (Tensor::M(param_grad), Tensor::V(delta))
     }
 }
 
@@ -49,66 +52,94 @@ impl Function for Translation {
     }
 }
 
-pub struct ReLU;
+trait ActivationFunction {
+    fn eval(&self, input: f32) -> f32;
 
-impl Function for ReLU {
+    fn derivetive(&self, input: f32) -> f32;
+}
+
+impl<T> Function for T
+where
+    T: ActivationFunction,
+{
     fn forward(&self, _param: &Tensor, input: &Tensor) -> Tensor {
-        let vector = input.as_vector();
-        Tensor::V(Vector(vector.0.iter().map(|x| x.max(0.0)).collect()))
+        let input = input.as_vector();
+        Tensor::V(Vector(input.0.iter().map(|x| self.eval(*x)).collect()))
     }
+
     fn backward(&self, _param: &Tensor, input: &Tensor, delta: &Tensor) -> (Tensor, Tensor) {
-        let vector = input.as_vector();
-        let derivetive = Vector(
-            vector
-                .0
-                .iter()
-                .map(|x| if *x >= 0.0 { 1.0 } else { 0.0 })
-                .collect(),
-        );
+        let input = input.as_vector();
+        let derivatives = Vector(input.0.iter().map(|x| self.derivetive(*x)).collect());
+
         (
             Tensor::N,
-            Tensor::V(derivetive.hadamard(&delta.as_vector())),
+            Tensor::V(derivatives.hadamard(&delta.as_vector())),
         )
+    }
+}
+
+pub struct ReLU;
+
+impl ActivationFunction for ReLU {
+    fn eval(&self, input: f32) -> f32 {
+        input.max(0.0)
+    }
+    fn derivetive(&self, input: f32) -> f32 {
+        if input >= 0.0 {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+
+pub struct ELU {
+    pub alpha: f32,
+}
+
+impl ActivationFunction for ELU {
+    fn eval(&self, input: f32) -> f32 {
+        if input >= 0.0 {
+            input
+        } else {
+            self.alpha * (input.exp() - 1.0)
+        }
+    }
+    fn derivetive(&self, input: f32) -> f32 {
+        if input >= 0.0 {
+            1.0
+        } else {
+            self.alpha * input.exp()
+        }
     }
 }
 
 pub struct Sigmoid;
 
-impl Function for Sigmoid {
-    fn forward(&self, _param: &Tensor, input: &Tensor) -> Tensor {
-        let vector = input.as_vector();
-        Tensor::V(Vector(
-            vector.0.iter().map(|x| 1.0 / (1.0 + (-x).exp())).collect(),
-        ))
+impl ActivationFunction for Sigmoid {
+    fn eval(&self, input: f32) -> f32 {
+        1.0 / (1.0 + (-input).exp())
     }
-    fn backward(&self, _param: &Tensor, input: &Tensor, delta: &Tensor) -> (Tensor, Tensor) {
-        let vector = input.as_vector();
-        let derivetive = Vector(
-            vector
-                .0
-                .iter()
-                .map(|x| (1. + (-x).exp()).powi(-2) * (-x).exp())
-                .collect(),
-        );
-        (
-            Tensor::N,
-            Tensor::V(derivetive.hadamard(&delta.as_vector())),
-        )
+    fn derivetive(&self, input: f32) -> f32 {
+        (1. + (-input).exp()).powi(-2) * (-input).exp()
     }
 }
 
-pub struct SqLoss;
+pub trait LossFunction {
+    fn loss(&self, target: &Tensor, input: &Tensor) -> f32;
 
-impl Function for SqLoss {
-    fn forward(&self, param: &Tensor, input: &Tensor) -> Tensor {
-        Tensor::S((input.as_vector() - param.as_vector()).len_sq() * 0.5)
+    fn delta(&self, target: &Tensor, input: &Tensor) -> Tensor;
+}
+
+pub struct MSELoss;
+
+impl LossFunction for MSELoss {
+    fn loss(&self, target: &Tensor, input: &Tensor) -> f32 {
+        (input.as_vector() - target.as_vector()).len_sq() * 0.5
     }
-    fn backward(&self, param: &Tensor, input: &Tensor, _delta: &Tensor) -> (Tensor, Tensor) {
-        let y = param.as_vector();
+    fn delta(&self, target: &Tensor, input: &Tensor) -> Tensor {
+        let y = target.as_vector();
         let x = input.as_vector();
-        (
-            Tensor::N,
-            Tensor::V(y.clone() - x.clone()),
-        )
+        Tensor::V(x - y)
     }
 }
