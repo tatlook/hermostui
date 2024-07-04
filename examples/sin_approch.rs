@@ -3,7 +3,7 @@ use std::io::Write;
 
 use hermostui::{
     learning::Sequence,
-    linealg::{Shape, Tensor},
+    linealg::{Shape, Tensor, Vector},
     modules::{Linear, MSELoss, ReLU, Translation},
 };
 
@@ -47,8 +47,8 @@ fn main() {
         ],
         Box::new(MSELoss),
     );
-    if let Ok(data) = fs::read("params.pkl") {
-        println!("Resuming training from params.pkl");
+    if let Ok(data) = fs::read("data/sin_approch.pkl") {
+        println!("Resuming training from data/sin_approch.pkl");
         let params: Vec<Tensor> = serde_pickle::from_slice(&data, Default::default()).unwrap();
         seq.set_params(params);
     } else {
@@ -60,8 +60,8 @@ fn main() {
         for _ in 0..10 {
             let x = rand::thread_rng().gen_range(-10.0..10.0);
             let y = approchfun(x);
-            seq.set_input(Tensor::S(x));
-            seq.set_target(Tensor::S(y));
+            seq.set_input(Vector(vec![x]));
+            seq.set_target(Vector(vec![y]));
             seq.forward();
             seq.backprop();
         }
@@ -79,7 +79,7 @@ fn main() {
         if i % 3000 == 2999 {
             println!("Saving params");
             let binary = serde_pickle::to_vec(&seq.get_params(), Default::default()).unwrap();
-            if let Ok(mut file) = std::fs::File::create("params.pkl") {
+            if let Ok(mut file) = std::fs::File::create("data/sin_approch.pkl") {
                 file.write_all(&binary).unwrap();
             } else {
                 println!("Failed to save params");
@@ -94,7 +94,7 @@ fn main() {
 use plotters::prelude::*;
 use rand::Rng;
 fn plot(seq: &mut Sequence) -> Result<(), Box<dyn std::error::Error>> {
-    let root = BitMapBackend::new("plot.bmp", (640, 480)).into_drawing_area();
+    let root = BitMapBackend::new("data/plot.bmp", (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;
     let mut chart = ChartBuilder::on(&root)
         .caption("y=x^2", ("sans-serif", 50).into_font())
@@ -118,9 +118,9 @@ fn plot(seq: &mut Sequence) -> Result<(), Box<dyn std::error::Error>> {
     chart
         .draw_series(LineSeries::new(
             (-1000..=1000).map(|x| x as f32 / 100.0).map(|x| {
-                seq.set_input(Tensor::S(x));
+                seq.set_input(Vector(vec![x]));
                 seq.forward();
-                (x, seq.get_result().0.as_vector().0[0])
+                (x, seq.get_result().0.0[0])
             }),
             &RED,
         ))?

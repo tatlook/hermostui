@@ -1,18 +1,18 @@
 use std::iter::zip;
 
 use crate::{
-    linealg::Tensor,
+    linealg::{Tensor, Vector},
     modules::{Function, LossFunction},
 };
 
 pub struct Sequence {
-    input: Tensor,
+    input: Option<Vector>,
     funcs: Vec<Box<dyn Function>>,
     params: Vec<Tensor>,
     loss_fn: Box<dyn LossFunction>,
     loss: f32,
-    target: Tensor,
-    output_chache: Vec<Tensor>,
+    target: Option<Vector>,
+    output_chache: Vec<Vector>,
     param_grads: Option<Vec<Tensor>>,
     batch_size: usize,
 }
@@ -24,30 +24,30 @@ impl Sequence {
         loss_fn: Box<dyn LossFunction>,
     ) -> Self {
         Self {
-            input: Tensor::N,
+            input: None,
             funcs,
             params,
             loss_fn,
             loss: 0.0,
-            target: Tensor::N,
+            target: None,
             output_chache: vec![],
             param_grads: None,
             batch_size: 0,
         }
     }
 
-    pub fn set_input(&mut self, input: Tensor) {
-        self.input = input;
+    pub fn set_input(&mut self, input: Vector) {
+        self.input = Some(input);
         self.output_chache.clear();
     }
 
-    pub fn set_target(&mut self, target: Tensor) {
-        self.target = target;
+    pub fn set_target(&mut self, target: Vector) {
+        self.target = Some(target);
     }
 
     pub fn forward(&mut self) {
         self.output_chache.clear();
-        let mut input = self.input.clone();
+        let mut input = self.input.clone().unwrap();
 
         for (func, param) in zip(&self.funcs, &self.params) {
             let output = func.forward(param, &input);
@@ -55,24 +55,36 @@ impl Sequence {
             input = output;
         }
 
-        self.loss += self.loss_fn.loss(&self.target, &input);
+        self.loss += self.loss_fn.loss(&self.target.clone().unwrap(), &input);
+    }
+
+    /// Only evaluate, returns output on last layer
+    pub fn evaluate(&self) -> Vector {
+        let mut input = self.input.clone().unwrap();
+
+        for (func, param) in zip(&self.funcs, &self.params) {
+            let output = func.forward(param, &input);
+            input = output;
+        }
+
+        input
     }
     
     pub fn backprop(&mut self) {
         let mut param_grads = vec![];
         let mut delta = self
             .loss_fn
-            .delta(&self.target, &self.output_chache.last().unwrap());
+            .delta(&self.target.clone().unwrap(), &self.output_chache.last().unwrap());
         for i in 0..self.funcs.len() {
             let i = self.funcs.len() - 1 - i;
             let func = &self.funcs[i];
             let param = &self.params[i];
             let input = if i == 0 {
-                &self.input
+                self.input.clone().unwrap()
             } else {
-                &self.output_chache[i - 1]
+                self.output_chache[i - 1].clone()
             };
-            let (grad, new_delta) = func.backward(param, input, &delta);
+            let (grad, new_delta) = func.backward(param, &input, &delta);
             delta = new_delta;
             param_grads.insert(0, grad);
         }
@@ -116,7 +128,7 @@ impl Sequence {
     }
 
     /// Returns (network output, loss)
-    pub fn get_result(&self) -> (Tensor, f32) {
+    pub fn get_result(&self) -> (Vector, f32) {
         let output = self.output_chache.last().unwrap().clone();
         (output, self.loss / self.batch_size as f32)
     }
