@@ -34,7 +34,7 @@ fn main() {
             Box::new(Sigmoid),
         ],
         vec![
-            Tensor::rand(Shape::M(30, MNIST_IMAGE_SIZE as usize)),
+            Tensor::rand(Shape::M(30, MNIST_IMAGE_SIZE)),
             Tensor::rand(Shape::V(30)),
             Tensor::N,
             Tensor::rand(Shape::M(10, 30)),
@@ -53,26 +53,24 @@ fn main() {
     for i in 0..10000 {
         seq.zero_grad();
         for _ in 0..5 {
-            let j: usize = rand::thread_rng().gen_range(0..TRAINING_SET_LENGTH) as usize;
+            let j = rand::thread_rng().gen_range(0..TRAINING_SET_LENGTH) as usize;
             let mut target = [0.0; 10];
             target[trn_lbl[j] as usize] = 1.0;
-            seq.set_target(Vector(Vec::from(target)));
 
             let j = j * MNIST_IMAGE_SIZE;
             let input = &trn_img[j..(j + MNIST_IMAGE_SIZE)];
-            seq.set_input(Vector(Vec::from(input)));
-            
-            seq.forward();
-            seq.backprop();
+
+            seq.forward(Vector(Vec::from(input)));
+            seq.backprop(Vector(Vec::from(target)));
         }
         seq.step(lr);
         
         if i % 200 == 0 {
-            let (_, loss) = seq.get_result();
+            let loss = seq.get_loss();
             println!("epoch {i}, loss {loss}");
             
             println!("Check how well this model is in data/plot.bmp");
-            draw(&mut seq, &trn_img, &trn_lbl);
+            draw(&seq, &trn_img, &trn_lbl);
 
             println!("Saving params");
             let binary = serde_pickle::to_vec(&seq.get_params(), Default::default()).unwrap();
@@ -85,9 +83,8 @@ fn main() {
     }
 }
 
-fn model_output(seq: &mut Sequence, image: &[f32]) -> usize {
-    seq.set_input(Vector(Vec::from(image)));
-    let output = seq.evaluate();
+fn model_output(seq: &Sequence, image: &[f32]) -> usize {
+    let output = seq.evaluate(Vector(Vec::from(image)));
 
     let mut max = 0.0;
     let mut max_i = 0;
@@ -100,7 +97,7 @@ fn model_output(seq: &mut Sequence, image: &[f32]) -> usize {
     max_i
 }
 
-fn draw(seq: &mut Sequence, trn_img: &Vec<f32>, trn_lbl: &Vec<u8>) {
+fn draw(seq: &Sequence, trn_img: &Vec<f32>, trn_lbl: &Vec<u8>) {
     use plotters::prelude::*;
     let root = BitMapBackend::new("data/plot.bmp", (300, 300)).into_drawing_area();
     root.fill(&WHITE).unwrap();

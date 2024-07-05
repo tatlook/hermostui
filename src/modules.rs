@@ -30,7 +30,7 @@ impl Function for Linear {
 
         let matrix = param.as_matrix();
         let matrix_t = matrix.transpose();
-        assert_eq!(param_grad.clone().shape(), matrix.shape());
+        assert_eq!(param_grad.shape(), matrix.shape());
         let delta = matrix_t.apply(&delta);
         (Tensor::M(param_grad), delta)
     }

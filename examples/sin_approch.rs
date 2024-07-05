@@ -60,15 +60,13 @@ fn main() {
         for _ in 0..10 {
             let x = rand::thread_rng().gen_range(-10.0..10.0);
             let y = approchfun(x);
-            seq.set_input(Vector(vec![x]));
-            seq.set_target(Vector(vec![y]));
-            seq.forward();
-            seq.backprop();
+            seq.forward(Vector(vec![x]));
+            seq.backprop(Vector(vec![y]));
         }
         seq.step(lr);
 
         if i % 1000 == 0 {
-            let (_, loss) = seq.get_result();
+            let loss = seq.get_loss();
             println!("epoch {i}, loss {loss}");
             if loss.is_nan() {
                 println!("loss is nan, something went wrong, exit");
@@ -88,7 +86,6 @@ fn main() {
         }
     }
     println!("Done");
-
 }
 
 use plotters::prelude::*;
@@ -117,11 +114,9 @@ fn plot(seq: &mut Sequence) -> Result<(), Box<dyn std::error::Error>> {
 
     chart
         .draw_series(LineSeries::new(
-            (-1000..=1000).map(|x| x as f32 / 100.0).map(|x| {
-                seq.set_input(Vector(vec![x]));
-                seq.forward();
-                (x, seq.get_result().0.0[0])
-            }),
+            (-1000..=1000)
+                .map(|x| x as f32 / 100.0)
+                .map(|x| (x, seq.evaluate(Vector(vec![x])).0[0])),
             &RED,
         ))?
         .label("Network")

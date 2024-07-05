@@ -6,13 +6,11 @@ use crate::{
 };
 
 pub struct Sequence {
-    input: Option<Vector>,
     funcs: Vec<Box<dyn Function>>,
     params: Vec<Tensor>,
     loss_fn: Box<dyn LossFunction>,
     loss: f32,
-    target: Option<Vector>,
-    output_chache: Vec<Vector>,
+    value_cache: Vec<Vector>,
     param_grads: Option<Vec<Tensor>>,
     batch_size: usize,
 }
@@ -24,82 +22,64 @@ impl Sequence {
         loss_fn: Box<dyn LossFunction>,
     ) -> Self {
         Self {
-            input: None,
             funcs,
             params,
             loss_fn,
             loss: 0.0,
-            target: None,
-            output_chache: vec![],
+            value_cache: vec![],
             param_grads: None,
             batch_size: 0,
         }
     }
 
-    pub fn set_input(&mut self, input: Vector) {
-        self.input = Some(input);
-        self.output_chache.clear();
-    }
-
-    pub fn set_target(&mut self, target: Vector) {
-        self.target = Some(target);
-    }
-
-    pub fn forward(&mut self) {
-        self.output_chache.clear();
-        let mut input = self.input.clone().unwrap();
+    pub fn forward(&mut self, mut input: Vector) {
+        self.value_cache.clear();
 
         for (func, param) in zip(&self.funcs, &self.params) {
             let output = func.forward(param, &input);
-            self.output_chache.push(output.clone());
+            self.value_cache.push(input);
             input = output;
         }
-
-        self.loss += self.loss_fn.loss(&self.target.clone().unwrap(), &input);
+        self.value_cache.push(input);
     }
 
     /// Only evaluate, returns output on last layer
-    pub fn evaluate(&self) -> Vector {
-        let mut input = self.input.clone().unwrap();
-
+    pub fn evaluate(&self, mut input: Vector) -> Vector {
         for (func, param) in zip(&self.funcs, &self.params) {
             let output = func.forward(param, &input);
             input = output;
         }
-
         input
     }
-    
-    pub fn backprop(&mut self) {
+
+    pub fn backprop(&mut self, target: Vector) {
         let mut param_grads = vec![];
         let mut delta = self
             .loss_fn
-            .delta(&self.target.clone().unwrap(), &self.output_chache.last().unwrap());
-        for i in 0..self.funcs.len() {
-            let i = self.funcs.len() - 1 - i;
-            let func = &self.funcs[i];
+            .delta(&target, &self.value_cache.last().unwrap());
+        for (i, func) in self.funcs.iter().enumerate().rev() {            
             let param = &self.params[i];
-            let input = if i == 0 {
-                self.input.clone().unwrap()
-            } else {
-                self.output_chache[i - 1].clone()
-            };
-            let (grad, new_delta) = func.backward(param, &input, &delta);
+            let input = &self.value_cache[i];
+            let (grad, new_delta) = func.backward(param, input, &delta);
             delta = new_delta;
             param_grads.insert(0, grad);
         }
-        
+
         if let Some(param_grads_sum) = &mut self.param_grads {
-            for i in 0..param_grads_sum.len() {
-                param_grads_sum[i] += param_grads[i].clone();
+            for (i, grad) in param_grads.into_iter().enumerate() {
+                param_grads_sum[i] += grad;
             }
         } else {
             assert!(self.batch_size == 0);
             self.param_grads = Some(param_grads);
         }
+
         self.batch_size += 1;
+        self.loss += self
+            .loss_fn
+            .loss(&target, &self.value_cache.last().unwrap());
     }
-    
+
     pub fn step(&mut self, lr: f32) {
         if let Some(param_grads) = &self.param_grads {
             for i in 0..self.funcs.len() {
@@ -116,7 +96,7 @@ impl Sequence {
         self.param_grads = None;
         self.batch_size = 0;
         self.loss = 0.0;
-    } 
+    }
 
     pub fn get_params(&self) -> Vec<Tensor> {
         self.params.clone()
@@ -127,9 +107,8 @@ impl Sequence {
         self.zero_grad();
     }
 
-    /// Returns (network output, loss)
-    pub fn get_result(&self) -> (Vector, f32) {
-        let output = self.output_chache.last().unwrap().clone();
-        (output, self.loss / self.batch_size as f32)
+    /// Returns average loss of last batch
+    pub fn get_loss(&self) -> f32 {
+        self.loss / self.batch_size as f32
     }
 }

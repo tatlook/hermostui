@@ -6,17 +6,11 @@ I implemented a small liner algebra, backpropagation and of course neuron networ
 Model's parameters can be serialized using `serde`, so it can be saved just like in PyTorch.
 
 ## Example
-I also write example in `./examples/`, welcome to check. Below is a linear regression:
+I also wrote some examples in `./examples/`, welcome to check. Below is a linear regression:
 ```rust
 let mut seq = Sequence::new(
-    vec![
-        Box::new(Linear),
-        Box::new(Translation),
-    ],
-    vec![
-        Tensor::rand(Shape::M(1, 1)),
-        Tensor::rand(Shape::V(1)),
-    ],
+    vec![ Box::new(Linear), Box::new(Translation), ],
+    vec![ Tensor::rand(Shape::M(1, 1)), Tensor::rand(Shape::V(1)), ],
     Box::new(MSELoss),
 );
 let lr = 1e-2;
@@ -25,10 +19,8 @@ for _ in 0..100 {
     for _ in 0..10 {
         let x = rand::thread_rng().gen_range(-10.0..10.0);
         let y = x * 2.0 + 1.0;
-        seq.set_input(Tensor::S(x));
-        seq.set_target(Tensor::S(y));
-        seq.forward();
-        seq.backprop();
+        seq.forward(Tensor::S(x));
+        seq.backprop(Tensor::S(y));
     }
     seq.step(lr);
 }
