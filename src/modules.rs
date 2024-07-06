@@ -14,7 +14,7 @@ pub struct Linear;
 
 impl Function for Linear {
     fn forward(&self, param: &Tensor, input: &Vector) -> Vector {
-        let matrix = param.as_matrix();
+        let matrix = param.clone().as_matrix();
         matrix.apply(&input)
     }
     fn backward(&self, param: &Tensor, input: &Vector, delta: &Vector) -> (Tensor, Vector) {
@@ -28,7 +28,7 @@ impl Function for Linear {
         }
         let param_grad = Matrix::new(param_grad);
 
-        let matrix = param.as_matrix();
+        let matrix = param.clone().as_matrix();
         let matrix_t = matrix.transpose();
         assert_eq!(param_grad.shape(), matrix.shape());
         let delta = matrix_t.apply(&delta);
@@ -40,8 +40,8 @@ pub struct Translation;
 
 impl Function for Translation {
     fn forward(&self, param: &Tensor, input: &Vector) -> Vector {
-        let param = param.as_vector();
-        param + (*input).clone()
+        let param = param.clone().as_vector();
+        param + input
     }
     fn backward(&self, _param: &Tensor, _input: &Vector, delta: &Vector) -> (Tensor, Vector) {
         (Tensor::V(delta.clone()), delta.clone())
@@ -129,10 +129,10 @@ pub struct MSELoss;
 
 impl LossFunction for MSELoss {
     fn loss(&self, target: &Vector, input: &Vector) -> f32 {
-        ((*input).clone() - (*target).clone()).len_sq() * 0.5
+        (input.clone() - target).len_sq() * 0.5
     }
     fn delta(&self, target: &Vector, input: &Vector) -> Vector {
-        (*input).clone() - (*target).clone()
+        input.clone() - target
     }
 }
 

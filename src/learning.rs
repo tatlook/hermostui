@@ -66,7 +66,7 @@ impl Sequence {
         }
 
         if let Some(param_grads_sum) = &mut self.param_grads {
-            for (i, grad) in param_grads.into_iter().enumerate() {
+            for (i, grad) in param_grads.iter().enumerate() {
                 param_grads_sum[i] += grad;
             }
         } else {
@@ -81,11 +81,10 @@ impl Sequence {
     }
 
     pub fn step(&mut self, lr: f32) {
-        if let Some(param_grads) = &self.param_grads {
-            for i in 0..self.funcs.len() {
-                let param_grad = param_grads[i].clone();
+        if let Some(param_grads) = self.param_grads.take() {
+            for (i, param_grad) in param_grads.into_iter().enumerate() {
                 let param = &mut self.params[i];
-                *param -= Tensor::S(lr / self.batch_size as f32) * param_grad;
+                *param -= &(param_grad * (lr / self.batch_size as f32));
             }
         } else {
             panic!("No gradient to desent")
@@ -104,7 +103,6 @@ impl Sequence {
 
     pub fn set_params(&mut self, params: Vec<Tensor>) {
         self.params = params;
-        self.zero_grad();
     }
 
     /// Returns average loss of last batch
