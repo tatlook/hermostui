@@ -5,7 +5,7 @@ use crate::{
     modules::{Function, LossFunction},
 };
 
-pub struct Sequence {
+pub struct SGD {
     funcs: Vec<Box<dyn Function>>,
     params: Vec<Tensor>,
     loss_fn: Box<dyn LossFunction>,
@@ -15,7 +15,7 @@ pub struct Sequence {
     batch_size: usize,
 }
 
-impl Sequence {
+impl SGD {
     pub fn new(
         funcs: Vec<Box<dyn Function>>,
         params: Vec<Tensor>,
@@ -35,7 +35,7 @@ impl Sequence {
     pub fn forward(&mut self, mut input: Vector) {
         self.value_cache.clear();
 
-        for (func, param) in zip(&self.funcs, &self.params) {
+        for (func, param) in zip(&mut self.funcs, &self.params) {
             let output = func.forward(param, &input);
             self.value_cache.push(input);
             input = output;
@@ -46,7 +46,7 @@ impl Sequence {
     /// Only evaluate, returns output on last layer
     pub fn evaluate(&self, mut input: Vector) -> Vector {
         for (func, param) in zip(&self.funcs, &self.params) {
-            let output = func.forward(param, &input);
+            let output = func.evaluate(param, &input);
             input = output;
         }
         input
@@ -60,7 +60,7 @@ impl Sequence {
         for (i, func) in self.funcs.iter().enumerate().rev() {            
             let param = &self.params[i];
             let input = &self.value_cache[i];
-            let (grad, new_delta) = func.backward(param, input, &delta);
+            let (grad, new_delta) = func.backward(param, input, delta);
             delta = new_delta;
             param_grads.insert(0, grad);
         }

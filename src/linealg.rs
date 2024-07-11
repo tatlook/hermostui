@@ -1,6 +1,5 @@
 use std::{
-    fmt::Display,
-    ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign},
+    fmt::Display, iter::zip, ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign}
 };
 
 use rand::Rng;
@@ -110,6 +109,10 @@ impl Matrix {
         Self(data)
     }
 
+    pub fn data_mut(&mut self) -> &mut Vec<Vector> {
+        &mut self.0
+    }
+
     /// Applies the linear transformation to the vector
     pub fn apply(self, rhs: &Vector) -> Vector {
         assert_eq!(self.0.len(), rhs.size());
@@ -202,7 +205,7 @@ impl Display for Matrix {
 /// For matrix, this is (#rows, #columns)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shape {
-    N, S, V(usize), M(usize, usize),
+    N, S, V(usize), M(usize, usize), L(Vec<Shape>),
 }
 
 impl Display for Shape {
@@ -212,6 +215,16 @@ impl Display for Shape {
             Shape::S => write!(f, "S"),
             Shape::V(v) => write!(f, "V({})", v),
             Shape::M(r, c) => write!(f, "M({}, {})", r, c),
+            Shape::L(l) => {
+                write!(f, "L(")?;
+                for i in 0..l.len() {
+                    write!(f, "{}", l[i])?;
+                    if i != l.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")
+            },
         }
     }
 }
@@ -224,6 +237,8 @@ pub enum Tensor {
     S(f32), 
     V(Vector),
     M(Matrix),
+    /// A list of tensors
+    L(Vec<Tensor>),
 }
 
 fn check_shape(t1: &Tensor, t2: &Tensor) {
@@ -256,12 +271,20 @@ impl Tensor {
         }
     }
 
+    pub fn as_tensor_list_ref(&self) -> &Vec<Tensor> {
+        match self {
+            Tensor::L(l) => l,
+            _ => panic!("Can't cast {self} to tensor list"),
+        }
+    }
+
     pub fn shape(&self) -> Shape {
         match self {
             Tensor::N => Shape::N,
             Tensor::S(_) => Shape::S,
             Tensor::V(v) => Shape::V(v.size()),
             Tensor::M(m) => m.shape(),
+            Tensor::L(l) => Shape::L(l.iter().map(|t| t.shape()).collect()),
         }
     }
 
@@ -271,6 +294,7 @@ impl Tensor {
             Shape::S => Tensor::S(0.0),
             Shape::V(l) => Tensor::V(Vector(vec![0.0; l])),
             Shape::M(r, c) => Tensor::M(Matrix(vec![Vector(vec![0.0; r]); c])),
+            Shape::L(l) => Tensor::L(l.iter().map(|s| Tensor::zeroes(s.clone())).collect()),
         }
     }
 
@@ -298,6 +322,7 @@ impl Tensor {
                 }
                 Tensor::M(Matrix(li))
             },
+            Shape::L(l) => Tensor::L(l.iter().map(|s| Tensor::rand(s.clone())).collect()),
         }
     }
 }
@@ -310,6 +335,11 @@ impl AddAssign<&Self> for Tensor {
             (Tensor::S(s1), Tensor::S(s2)) => *s1 += s2,
             (Tensor::V(v1), Tensor::V(v2)) => *v1 += v2,
             (Tensor::M(m1), Tensor::M(m2)) => *m1 += m2,
+            (Tensor::L(l1), Tensor::L(l2)) => {
+                for (t1, t2) in zip(l1, l2) {
+                    *t1 += t2;
+                }
+            },
             _ => unreachable!(),
         }
     }
@@ -331,6 +361,11 @@ impl SubAssign<&Self> for Tensor {
             (Tensor::S(s1), Tensor::S(s2)) => *s1 -= s2,
             (Tensor::V(v1), Tensor::V(v2)) => *v1 -= v2,
             (Tensor::M(m1), Tensor::M(m2)) => *m1 -= m2,
+            (Tensor::L(l1), Tensor::L(l2)) => {
+                for (t1, t2) in zip(l1, l2) {
+                    *t1 -= t2;
+                }
+            },
             _ => unreachable!(),
         }
     }
@@ -352,6 +387,11 @@ impl MulAssign<f32> for Tensor {
             Tensor::S(s) => *s *= rhs,
             Tensor::V(v) => *v *= rhs,
             Tensor::M(m) => m.mul_assign_scalar(rhs),
+            Tensor::L(l) => {
+                for t in l {
+                    *t *= rhs;
+                }
+            }
         }
     }
 }
@@ -371,6 +411,13 @@ impl Display for Tensor {
             Tensor::S(s) => writeln!(f, "Tensor {}", s),
             Tensor::V(v) => writeln!(f, "Tensor {}", v),
             Tensor::M(m) => writeln!(f, "Tensor {}", m),
+            Tensor::L(l) => {
+                writeln!(f, "Tensor [")?;
+                for t in l {
+                    writeln!(f, "Tensor {}", t)?;
+                }
+                write!(f, "]")
+            },
         }
     }
 }

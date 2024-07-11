@@ -1,50 +1,68 @@
+// fn loss(x: f32) -> f32 {
+//     x.powi(2) + x + 1.
+// }
+
+// /// Better spices will take over worse spices
+// fn randomchoice(spices: Vec<f32>, scores: Vec<f32>) -> Vec<f32> {
+//     let mut rng = rand::thread_rng();
+//     let all_scores = scores.iter().sum::<f32>();
+//     for (spice, score) in zip(spices, scores) {
+//         unimplemented!()
+//     }
+//     panic!()
+// }
+
+// fn main() {
+//     let x = 500.0;
+//     let mut spices = [x; 10];
+//     for _ in 0..100000 {
+//         for j in &mut spices {
+//             *j += rand::thread_rng().gen_range(-0.1..0.1);
+//         }
+//         let mut min = f32::INFINITY;
+//         let mut min_spice = 0.0;
+//         for spice in spices {
+//             let score = loss(spice);
+//             if score < min {
+//                 min = score;
+//                 min_spice = spice;
+//             }
+//         }
+//         spices = [min_spice; 10];
+//     }
+//     print!("{:?} ", spices);
+// }
+
 use std::fs;
 use std::io::Write;
+use std::iter::zip;
 
 use hermostui::{
     learning::SGD,
     linealg::{Shape, Tensor, Vector},
-    modules::{Linear, MSELoss, ReLU, Sequence, Translation},
+    modules::{Linear, LossFunction, MSELoss, ReLU, Translation},
 };
 
 fn approchfun(x: f32) -> f32 {
-    (x * 2.0).sin() * 6.0 - 1.0
+    x / 20.
 }
 
 fn main() {
     let mut seq: SGD = SGD::new(
-        vec![Box::new(Sequence::new(vec![
+        vec![
             Box::new(Linear),
             Box::new(Translation),
             Box::new(ReLU),
             Box::new(Linear),
             Box::new(Translation),
-            Box::new(ReLU),
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ReLU),
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ReLU),
-            Box::new(Linear),
-            Box::new(Translation),
-        ]))],
-        vec![Tensor::L(vec![
+        ],
+        vec![
             Tensor::rand(Shape::M(16, 1)),
-            Tensor::rand(Shape::V(16)),
-            Tensor::N,
-            Tensor::rand(Shape::M(16, 16)),
-            Tensor::rand(Shape::V(16)),
-            Tensor::N,
-            Tensor::rand(Shape::M(16, 16)),
-            Tensor::rand(Shape::V(16)),
-            Tensor::N,
-            Tensor::rand(Shape::M(16, 16)),
             Tensor::rand(Shape::V(16)),
             Tensor::N,
             Tensor::rand(Shape::M(1, 16)),
             Tensor::rand(Shape::V(1)),
-        ])],
+        ],
         Box::new(MSELoss),
     );
     if let Ok(data) = fs::read("data/sin_approch.pkl") {
@@ -54,21 +72,41 @@ fn main() {
     } else {
         println!("Training from scratch");
     }
-    let lr = 1e-3;
+    let lr = 1e-1;
     for i in 0..10000 {
-        seq.zero_grad();
-        for _ in 0..10 {
-            let x = rand::thread_rng().gen_range(-10.0..10.0);
-            let y = approchfun(x);
-            seq.forward(Vector(vec![x]));
-            seq.backprop(Vector(vec![y]));
+        let inputs: Vec<Vector> = (0..10)
+            .map(|_| Vector(vec![rand::thread_rng().gen_range(-10.0..10.0)]))
+            .collect();
+        let targets: Vec<Vector> = inputs
+            .iter()
+            .map(|input| Vector(vec![approchfun(input.0[0])])).collect();
+        let mut loss_sum_before = 0.0;
+        for (input, target) in zip(&inputs, &targets) {
+            let value = seq.evaluate(input.clone());
+            let loss = MSELoss.loss(target, &value);
+            loss_sum_before += loss;
         }
-        seq.step(lr);
+        let params_before = seq.get_params();
+        let mut params_after = vec![];
+        for param in &params_before {
+            let rand = Tensor::rand(param.shape()) * lr;
+            params_after.push(rand + param);
+        }
+        seq.set_params(params_after);
+
+        let mut loss_sum_after = 0.0;
+        for (input, target) in zip(&inputs, &targets) {
+            let value = seq.evaluate(input.clone());
+            let loss = MSELoss.loss(target, &value);
+            loss_sum_after += loss;
+        }
+        if loss_sum_after > loss_sum_before {
+            seq.set_params(params_before);
+        }
 
         if i % 1000 == 0 {
-            let loss = seq.get_loss();
-            println!("epoch {i}, loss {loss}");
-            if loss.is_nan() {
+            println!("epoch {i}, loss {loss_sum_before}");
+            if loss_sum_before.is_nan() {
                 println!("loss is nan, something went wrong, exit");
                 return;
             }
