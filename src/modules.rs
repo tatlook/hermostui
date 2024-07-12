@@ -257,7 +257,7 @@ impl Function for Sequence {
         let params = param.as_tensor_list_ref();
 
         for (func, param) in zip(&mut self.funcs, params) {
-            let output = func.evaluate(param, &input);
+            let output = func.forward(param, &input);
             self.value_cache.push(output.clone());
             input = output;
         }

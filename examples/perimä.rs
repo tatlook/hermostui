@@ -40,68 +40,66 @@ use std::iter::zip;
 use hermostui::{
     learning::SGD,
     linealg::{Shape, Tensor, Vector},
-    modules::{Linear, LossFunction, MSELoss, ReLU, Translation},
+    modules::{Linear, LossFunction, MSELoss, ReLU, Sequence, Translation},
 };
 
 fn approchfun(x: f32) -> f32 {
-    x / 20.
+    (x / 2.).cos()
 }
 
 fn main() {
-    let mut seq: SGD = SGD::new(
-        vec![
+    let mut optim = SGD::new(
+        Box::new(Sequence::new(vec![
             Box::new(Linear),
             Box::new(Translation),
             Box::new(ReLU),
             Box::new(Linear),
             Box::new(Translation),
-        ],
-        vec![
+        ])),
+        Tensor::L(vec![
             Tensor::rand(Shape::M(16, 1)),
             Tensor::rand(Shape::V(16)),
             Tensor::N,
             Tensor::rand(Shape::M(1, 16)),
             Tensor::rand(Shape::V(1)),
-        ],
+        ]),
         Box::new(MSELoss),
     );
-    if let Ok(data) = fs::read("data/sin_approch.pkl") {
-        println!("Resuming training from data/sin_approch.pkl");
-        let params: Vec<Tensor> = serde_pickle::from_slice(&data, Default::default()).unwrap();
-        seq.set_params(params);
+    if let Ok(data) = fs::read("data/perimä.pkl") {
+        println!("Resuming training from data/perimä.pkl");
+        let params: Tensor = serde_pickle::from_slice(&data, Default::default()).unwrap();
+        optim.set_param(params);
     } else {
         println!("Training from scratch");
     }
     let lr = 1e-1;
     for i in 0..10000 {
-        let inputs: Vec<Vector> = (0..10)
+        let inputs: Vec<Vector> = (0..100)
             .map(|_| Vector(vec![rand::thread_rng().gen_range(-10.0..10.0)]))
             .collect();
         let targets: Vec<Vector> = inputs
             .iter()
-            .map(|input| Vector(vec![approchfun(input.0[0])])).collect();
+            .map(|input| Vector(vec![approchfun(input.0[0])]))
+            .collect();
         let mut loss_sum_before = 0.0;
         for (input, target) in zip(&inputs, &targets) {
-            let value = seq.evaluate(input.clone());
+            let value = optim.evaluate(input.clone());
             let loss = MSELoss.loss(target, &value);
             loss_sum_before += loss;
         }
-        let params_before = seq.get_params();
-        let mut params_after = vec![];
-        for param in &params_before {
-            let rand = Tensor::rand(param.shape()) * lr;
-            params_after.push(rand + param);
-        }
-        seq.set_params(params_after);
+        let params_before = optim.get_param();
+        let params_after = Tensor::rand(params_before.shape()) * lr + &params_before;
+
+        optim.set_param(params_after);
 
         let mut loss_sum_after = 0.0;
         for (input, target) in zip(&inputs, &targets) {
-            let value = seq.evaluate(input.clone());
+            let value = optim.evaluate(input.clone());
             let loss = MSELoss.loss(target, &value);
             loss_sum_after += loss;
         }
         if loss_sum_after > loss_sum_before {
-            seq.set_params(params_before);
+            optim.set_param(params_before);
         }
 
         if i % 1000 == 0 {
@@ -114,13 +112,13 @@ fn main() {
 
         if i % 3000 == 2999 {
             println!("Saving params");
-            let binary = serde_pickle::to_vec(&seq.get_params(), Default::default()).unwrap();
-            if let Ok(mut file) = std::fs::File::create("data/sin_approch.pkl") {
+            let binary = serde_pickle::to_vec(&optim.get_param(), Default::default()).unwrap();
+            if let Ok(mut file) = std::fs::File::create("data/perimä.pkl") {
                 file.write_all(&binary).unwrap();
             } else {
                 println!("Failed to save params");
             }
-            plot(&mut seq).unwrap();
+            plot(&mut optim).unwrap();
         }
     }
     println!("Done");

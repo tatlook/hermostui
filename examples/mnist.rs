@@ -3,7 +3,7 @@ use std::{fs, io::Write};
 use hermostui::{
     learning::SGD,
     linealg::{Shape, Tensor, Vector},
-    modules::{CrossEntropyLoss, Dropout, Linear, ReLU, Sigmoid, Translation},
+    modules::{CrossEntropyLoss, Dropout, Linear, ReLU, Sequence, Sigmoid, Translation},
 };
 use mnist::MnistBuilder;
 
@@ -14,7 +14,7 @@ const TRAINING_SET_LENGTH: u32 = 60000;
 const TEST_SET_LENGTH: u32 = 10000;
 
 fn main() {
-    let lr = 1e-2;
+    let lr = 1e-1;
 
     let mnist::NormalizedMnist {
         trn_img,
@@ -30,36 +30,34 @@ fn main() {
         .finalize()
         .normalize();
     let mut seq = SGD::new(
-        vec![
+        Box::new(Sequence::new(vec![
             Box::new(Linear),
             Box::new(Translation),
             Box::new(ReLU),
-            Box::new(Dropout::new(0.0, 30)),
             Box::new(Linear),
             Box::new(Translation),
             Box::new(Sigmoid),
-        ],
-        vec![
+        ])),
+        Tensor::L(vec![
             Tensor::rand(Shape::M(30, MNIST_IMAGE_SIZE)),
             Tensor::rand(Shape::V(30)),
-            Tensor::N,
             Tensor::N,
             Tensor::rand(Shape::M(10, 30)),
             Tensor::rand(Shape::V(10)),
             Tensor::N,
-        ],
+        ]),
         Box::new(CrossEntropyLoss),
     );
     if let Ok(data) = fs::read("data/mnist.pkl") {
         println!("Resuming training from data/mnist.pkl");
-        let params: Vec<Tensor> = serde_pickle::from_slice(&data, Default::default()).unwrap();
-        seq.set_params(params);
+        let params: Tensor = serde_pickle::from_slice(&data, Default::default()).unwrap();
+        seq.set_param(params);
     } else {
         println!("Training from scratch");
     }
     for i in 0..10000 {
         seq.zero_grad();
-        for _ in 0..20 {
+        for _ in 0..5 {
             let j = rand::thread_rng().gen_range(0..TRAINING_SET_LENGTH) as usize;
             let mut target = [0.0; 10];
             target[trn_lbl[j] as usize] = 1.0;
@@ -68,7 +66,7 @@ fn main() {
             let input = &trn_img[j..(j + MNIST_IMAGE_SIZE)];
 
             seq.forward(Vector(Vec::from(input)));
-            seq.backprop(Vector(Vec::from(target)));
+            seq.backprop(Vector(Vec::from(target)), Vector(Vec::from(input)));
         }
         seq.step(lr);
 
@@ -76,13 +74,19 @@ fn main() {
             let loss = seq.get_loss();
             println!("epoch {i}, loss {loss}");
 
-            println!("Train accuracy: {}/1000", accurecy1000(&seq, &trn_img, &trn_lbl));
-            println!("Test accuracy: {}/1000", accurecy1000(&seq, &tst_img, &tst_lbl));
+            println!(
+                "Train accuracy: {}/1000",
+                accurecy1000(&seq, &trn_img, &trn_lbl)
+            );
+            println!(
+                "Test accuracy: {}/1000",
+                accurecy1000(&seq, &tst_img, &tst_lbl)
+            );
             println!("Check how well this model is in data/plot.bmp");
             draw(&seq, &tst_img, &tst_lbl);
 
             println!("Saving params");
-            let binary = serde_pickle::to_vec(&seq.get_params(), Default::default()).unwrap();
+            let binary = serde_pickle::to_vec(&seq.get_param(), Default::default()).unwrap();
             if let Ok(mut file) = std::fs::File::create("data/mnist.pkl") {
                 file.write_all(&binary).unwrap();
             } else {
@@ -116,7 +120,7 @@ fn accurecy1000(seq: &SGD, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) -> usize {
         if actual == model_says {
             accurecy += 1;
         }
-    }   
+    }
     accurecy
 }
 
