@@ -1,54 +1,36 @@
 use std::fs;
-use std::io::Write;
 
 use hermostui::{
     learning::SGD,
-    linealg::{Shape, Tensor, Vector},
-    modules::{Linear, MSELoss, Sequence, Translation, ELU},
+    linealg::{Tensor, Vector},
+    modules::{Function, Linear, MSELoss, Sequence, Sigmoid, Translation, ELU},
 };
+
 fn approchfun(x: f32) -> f32 {
     static mut V: f32 = 1.0;
     unsafe {
-        V += 0.000003;
+       // V += 0.000003;
         return (x * V).sin() * 6.0 - 1.0;
     }
 }
 
 fn main() {
-    let mut optim: SGD = SGD::new(Box::new(Sequence::new(vec![
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ELU { alpha: 1.0 }),
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ELU { alpha: 1.0 }),
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ELU { alpha: 1.0 }),
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ELU { alpha: 1.0 }),
-            Box::new(Linear),
-            Box::new(Translation),
-        ])),
-        Tensor::L(vec![
-            Tensor::rand(Shape::M(5, 1)),
-            Tensor::rand(Shape::V(5)),
-            Tensor::N,
-            Tensor::rand(Shape::M(15, 5)),
-            Tensor::rand(Shape::V(15)),
-            Tensor::N,
-            Tensor::rand(Shape::M(5, 15)),
-            Tensor::rand(Shape::V(5)),
-            Tensor::N,
-            Tensor::rand(Shape::M(15, 5)),
-            Tensor::rand(Shape::V(15)),
-            Tensor::N,
-            Tensor::rand(Shape::M(1, 15)),
-            Tensor::rand(Shape::V(1)),
-        ]),
-        Box::new(MSELoss),
-    );
+    let model = Sequence::new(vec![
+        Box::new(Linear::new(1, 5)),
+        Box::new(Translation::new(5)),
+        Box::new(ELU { alpha: 1.0 }),
+        Box::new(Linear::new(5, 15)),
+        Box::new(Translation::new(15)),
+        Box::new(Sigmoid),
+        Box::new(Linear::new(15, 15)),
+        Box::new(Translation::new(15)),
+        Box::new(ELU { alpha: 1.0 }),
+        Box::new(Linear::new(15, 1)),
+        Box::new(Translation::new(1)),
+    ]);
+    let param = Tensor::rand(model.param_shape());
+    let mut optim = SGD::new(Box::new(model), param, Box::new(MSELoss));
+
     if let Ok(data) = fs::read("data/sin_approch.pkl") {
         println!("Resuming training from data/sin_approch.pkl");
         let param: Tensor = serde_pickle::from_slice(&data, Default::default()).unwrap();
@@ -56,11 +38,12 @@ fn main() {
     } else {
         println!("Training from scratch");
     }
-    let lr = 1e-3;
+
+    let lr = 3e-2;
     for i in 0..10000 {
         optim.zero_grad();
-        for _ in 0..5 {
-            let x = rand::thread_rng().gen_range(-10.0..10.0);
+        for i in 0..50 {
+            let x = i as f32 / 2.5 - 10.0;
             let y = approchfun(x);
             optim.forward(Vector(vec![x]));
             optim.backprop(Vector(vec![y]), Vector(vec![x]));
@@ -88,7 +71,6 @@ fn main() {
 }
 
 use plotters::prelude::*;
-use rand::Rng;
 fn plot(seq: &mut SGD) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new("data/plot.bmp", (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;

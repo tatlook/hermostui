@@ -2,7 +2,7 @@ use std::{iter::zip, vec};
 
 use rand::distributions::{Bernoulli, Distribution};
 
-use crate::linealg::{Matrix, Tensor, Vector};
+use crate::linealg::{Matrix, Shape, Tensor, Vector};
 
 pub trait Function {
     /// Caculates output.
@@ -15,12 +15,30 @@ pub trait Function {
 
     /// Returns (gradient of param, new delta)
     fn backward(&self, param: &Tensor, input: &Vector, delta: Vector) -> (Tensor, Vector);
+
+    /// Shape of parameter
+    fn param_shape(&self) -> Shape;
 }
 
-pub struct Linear;
+pub struct Linear {
+    from: usize,
+    to: usize,
+}
+
+impl Linear {
+    pub fn new(from: usize, to: usize) -> Self {
+        Self { from, to }
+    }
+}
 
 impl Function for Linear {
     fn evaluate(&self, param: &Tensor, input: &Vector) -> Vector {
+        debug_assert!(
+            input.0.len() == self.from,
+            "Wrong input dimension, expected {} but got {}",
+            self.from,
+            input.0.len()
+        );
         let matrix = param.clone().as_matrix();
         matrix.apply(&input)
     }
@@ -41,17 +59,37 @@ impl Function for Linear {
         let delta = matrix_t.apply(&delta);
         (Tensor::M(param_grad), delta)
     }
+    fn param_shape(&self) -> Shape {
+        Shape::M(self.to, self.from)
+    }
 }
 
-pub struct Translation;
+pub struct Translation {
+    dim: usize,
+}
+
+impl Translation {
+    pub fn new(dim: usize) -> Self {
+        Self { dim }
+    }
+}
 
 impl Function for Translation {
     fn evaluate(&self, param: &Tensor, input: &Vector) -> Vector {
+        debug_assert!(
+            input.0.len() == self.dim,
+            "Wrong input dimension, expected {} but got {}",
+            self.dim,
+            input.0.len()
+        );
         let param = param.clone().as_vector();
         param + input
     }
     fn backward(&self, _param: &Tensor, _input: &Vector, delta: Vector) -> (Tensor, Vector) {
         (Tensor::V(delta.clone()), delta)
+    }
+    fn param_shape(&self) -> Shape {
+        Shape::V(self.dim)
     }
 }
 
@@ -99,6 +137,10 @@ impl Function for Dropout {
         }
         (Tensor::N, Vector(v))
     }
+
+    fn param_shape(&self) -> Shape {
+        Shape::N
+    }
 }
 
 trait ActivationFunction {
@@ -119,6 +161,10 @@ where
         let derivatives = Vector(input.0.iter().map(|x| self.derivetive(*x)).collect());
 
         (Tensor::N, derivatives.hadamard(&delta))
+    }
+
+    fn param_shape(&self) -> Shape {
+        Shape::N
     }
 }
 
@@ -238,7 +284,6 @@ impl Sequence {
             value_cache: vec![],
         }
     }
-    
 }
 
 impl Function for Sequence {
@@ -281,5 +326,14 @@ impl Function for Sequence {
         }
 
         (Tensor::L(param_grads), delta)
+    }
+
+    fn param_shape(&self) -> Shape {
+        Shape::L(
+            self.funcs
+                .iter()
+                .map(|f| f.param_shape())
+                .collect::<Vec<Shape>>(),
+        )
     }
 }

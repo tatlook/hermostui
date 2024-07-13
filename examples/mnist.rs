@@ -2,8 +2,8 @@ use std::{fs, io::Write};
 
 use hermostui::{
     learning::SGD,
-    linealg::{Shape, Tensor, Vector},
-    modules::{CrossEntropyLoss, Dropout, Linear, ReLU, Sequence, Sigmoid, Translation},
+    linealg::{Tensor, Vector},
+    modules::{CrossEntropyLoss, Function, Linear, ReLU, Sequence, Sigmoid, Translation},
 };
 use mnist::MnistBuilder;
 
@@ -29,34 +29,27 @@ fn main() {
         .test_set_length(TEST_SET_LENGTH)
         .finalize()
         .normalize();
-    let mut seq = SGD::new(
-        Box::new(Sequence::new(vec![
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ReLU),
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(Sigmoid),
-        ])),
-        Tensor::L(vec![
-            Tensor::rand(Shape::M(30, MNIST_IMAGE_SIZE)),
-            Tensor::rand(Shape::V(30)),
-            Tensor::N,
-            Tensor::rand(Shape::M(10, 30)),
-            Tensor::rand(Shape::V(10)),
-            Tensor::N,
-        ]),
+    let model = Sequence::new(vec![
+        Box::new(Linear::new(MNIST_IMAGE_SIZE, 30)),
+        Box::new(Translation::new(30)),
+        Box::new(ReLU),
+        Box::new(Linear::new(30, 10)),
+        Box::new(Translation::new(10)),
+        Box::new(Sigmoid),
+    ]);
+    let param = Tensor::rand(model.param_shape());
+    let mut optim = SGD::new(Box::new(model), param,
         Box::new(CrossEntropyLoss),
     );
     if let Ok(data) = fs::read("data/mnist.pkl") {
         println!("Resuming training from data/mnist.pkl");
         let params: Tensor = serde_pickle::from_slice(&data, Default::default()).unwrap();
-        seq.set_param(params);
+        optim.set_param(params);
     } else {
         println!("Training from scratch");
     }
     for i in 0..10000 {
-        seq.zero_grad();
+        optim.zero_grad();
         for _ in 0..5 {
             let j = rand::thread_rng().gen_range(0..TRAINING_SET_LENGTH) as usize;
             let mut target = [0.0; 10];
@@ -65,28 +58,28 @@ fn main() {
             let j = j * MNIST_IMAGE_SIZE;
             let input = &trn_img[j..(j + MNIST_IMAGE_SIZE)];
 
-            seq.forward(Vector(Vec::from(input)));
-            seq.backprop(Vector(Vec::from(target)), Vector(Vec::from(input)));
+            optim.forward(Vector(Vec::from(input)));
+            optim.backprop(Vector(Vec::from(target)), Vector(Vec::from(input)));
         }
-        seq.step(lr);
+        optim.step(lr);
 
         if i % 100 == 0 {
-            let loss = seq.get_loss();
+            let loss = optim.get_loss();
             println!("epoch {i}, loss {loss}");
 
             println!(
                 "Train accuracy: {}/1000",
-                accurecy1000(&seq, &trn_img, &trn_lbl)
+                accurecy1000(&optim, &trn_img, &trn_lbl)
             );
             println!(
                 "Test accuracy: {}/1000",
-                accurecy1000(&seq, &tst_img, &tst_lbl)
+                accurecy1000(&optim, &tst_img, &tst_lbl)
             );
             println!("Check how well this model is in data/plot.bmp");
-            draw(&seq, &tst_img, &tst_lbl);
+            draw(&optim, &tst_img, &tst_lbl);
 
             println!("Saving params");
-            let binary = serde_pickle::to_vec(&seq.get_param(), Default::default()).unwrap();
+            let binary = serde_pickle::to_vec(&optim.get_param(), Default::default()).unwrap();
             if let Ok(mut file) = std::fs::File::create("data/mnist.pkl") {
                 file.write_all(&binary).unwrap();
             } else {

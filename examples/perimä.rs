@@ -1,46 +1,11 @@
-// fn loss(x: f32) -> f32 {
-//     x.powi(2) + x + 1.
-// }
-
-// /// Better spices will take over worse spices
-// fn randomchoice(spices: Vec<f32>, scores: Vec<f32>) -> Vec<f32> {
-//     let mut rng = rand::thread_rng();
-//     let all_scores = scores.iter().sum::<f32>();
-//     for (spice, score) in zip(spices, scores) {
-//         unimplemented!()
-//     }
-//     panic!()
-// }
-
-// fn main() {
-//     let x = 500.0;
-//     let mut spices = [x; 10];
-//     for _ in 0..100000 {
-//         for j in &mut spices {
-//             *j += rand::thread_rng().gen_range(-0.1..0.1);
-//         }
-//         let mut min = f32::INFINITY;
-//         let mut min_spice = 0.0;
-//         for spice in spices {
-//             let score = loss(spice);
-//             if score < min {
-//                 min = score;
-//                 min_spice = spice;
-//             }
-//         }
-//         spices = [min_spice; 10];
-//     }
-//     print!("{:?} ", spices);
-// }
-
 use std::fs;
 use std::io::Write;
 use std::iter::zip;
 
 use hermostui::{
     learning::SGD,
-    linealg::{Shape, Tensor, Vector},
-    modules::{Linear, LossFunction, MSELoss, ReLU, Sequence, Translation},
+    linealg::{Tensor, Vector},
+    modules::{Function, Linear, LossFunction, MSELoss, ReLU, Sequence, Translation},
 };
 
 fn approchfun(x: f32) -> f32 {
@@ -48,21 +13,17 @@ fn approchfun(x: f32) -> f32 {
 }
 
 fn main() {
+    let model = Sequence::new(vec![
+        Box::new(Linear::new(1, 1)),
+        Box::new(Translation::new(1)),
+        Box::new(ReLU),
+        Box::new(Linear::new(1, 1)),
+        Box::new(Translation::new(1)),
+    ]);
+    let param = Tensor::rand(model.param_shape());
     let mut optim = SGD::new(
-        Box::new(Sequence::new(vec![
-            Box::new(Linear),
-            Box::new(Translation),
-            Box::new(ReLU),
-            Box::new(Linear),
-            Box::new(Translation),
-        ])),
-        Tensor::L(vec![
-            Tensor::rand(Shape::M(16, 1)),
-            Tensor::rand(Shape::V(16)),
-            Tensor::N,
-            Tensor::rand(Shape::M(1, 16)),
-            Tensor::rand(Shape::V(1)),
-        ]),
+        Box::new(model),
+        param,
         Box::new(MSELoss),
     );
     if let Ok(data) = fs::read("data/perimä.pkl") {
