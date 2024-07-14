@@ -1,4 +1,4 @@
-use std::{iter::zip, vec};
+use std::iter::zip;
 
 use crate::{
     linealg::{Tensor, Vector},
@@ -6,40 +6,43 @@ use crate::{
 };
 
 pub struct SGD {
-    func: Box<dyn Function>,
-    param: Tensor,
-    loss_fn: Box<dyn LossFunction>,
-    loss: f32,
-    output_cache: Vector,
     param_grad: Option<Tensor>,
     batch_size: usize,
 }
 
 impl SGD {
-    pub fn new(func: Box<dyn Function>, param: Tensor, loss_fn: Box<dyn LossFunction>) -> Self {
+    pub fn new() -> Self {
         Self {
-            func,
-            param,
-            loss_fn,
-            loss: 0.0,
-            output_cache: Vector(vec![]),
             param_grad: None,
             batch_size: 0,
         }
     }
+}
 
-    pub fn forward(&mut self, input: Vector) {
-        self.output_cache = self.func.forward(&self.param, &input);
+impl SGD {
+    pub fn eat_batch(
+        &mut self,
+        func: &mut dyn Function,
+        param: &Tensor,
+        loss_fn: &dyn LossFunction,
+        inputs: impl Iterator<Item = Vector>,
+        targets: impl Iterator<Item = Vector>,
+    ) {
+        for (input, target) in zip(inputs, targets) {
+            self.eat_sample(func, param, loss_fn, input, target);
+        }
     }
-
-    /// Only evaluate, returns output on last layer
-    pub fn evaluate(&self, input: Vector) -> Vector {
-        self.func.evaluate(&self.param, &input)
-    }
-
-    pub fn backprop(&mut self, target: Vector, input: Vector) {
-        let delta = self.loss_fn.delta(&target, &self.output_cache);
-        let (grad, _) = self.func.backward(&self.param, &input, delta);
+    pub fn eat_sample(
+        &mut self,
+        func: &mut dyn Function,
+        param: &Tensor,
+        loss_fn: &dyn LossFunction,
+        input: Vector,
+        target: Vector,
+    ) {
+        let output = func.forward(param, &input);
+        let delta = loss_fn.delta(&target, &output);
+        let (grad, _) = func.backward(param, &input, delta);
 
         if let Some(param_grad_sum) = &mut self.param_grad {
             *param_grad_sum += &grad;
@@ -49,33 +52,53 @@ impl SGD {
         }
 
         self.batch_size += 1;
-        self.loss += self.loss_fn.loss(&target, &self.output_cache);
     }
 
-    pub fn step(&mut self, lr: f32) {
+    pub fn step(&mut self, param: &mut Tensor, lr: f32) {
         if let Some(param_grad) = self.param_grad.take() {
-            self.param -= &(param_grad * (lr / self.batch_size as f32));
+            *param -= &(param_grad * (lr / self.batch_size as f32));
         } else {
             panic!("No gradient to desent")
         }
-    }
-
-    pub fn zero_grad(&mut self) {
-        self.param_grad = None;
         self.batch_size = 0;
-        self.loss = 0.0;
     }
+}
 
-    pub fn get_param(&self) -> Tensor {
-        self.param.clone()
-    }
+pub struct TryStep;
 
-    pub fn set_param(&mut self, param: Tensor) {
-        self.param = param;
-    }
+impl TryStep {
+    pub fn step(
+        &self,
+        func: &dyn Function,
+        param: &mut Tensor,
+        loss_fn: &dyn LossFunction,
+        inputs: impl Iterator<Item = Vector> + Clone,
+        targets: impl Iterator<Item = Vector> + Clone,
+        lr: f32,
+    ) {
+        let loss = count_loss(func, param, loss_fn, inputs.clone(), targets.clone());
+        let param_after = Tensor::rand(param.shape()) * lr + param;
+        let loss_after = count_loss(func, &param_after, loss_fn, inputs, targets);
 
-    /// Returns average loss of last batch
-    pub fn get_loss(&self) -> f32 {
-        self.loss / self.batch_size as f32
+        if loss_after < loss {
+            *param = param_after;
+        }
     }
+}
+
+pub fn count_loss(
+    func: &dyn Function,
+    param: &Tensor,
+    loss_fn: &dyn LossFunction,
+    inputs: impl Iterator<Item = Vector>,
+    targets: impl Iterator<Item = Vector>,
+) -> f32 {
+    let mut loss = 0.0;
+    let mut n = 0;
+    for (input, target) in zip(inputs, targets) {
+        let output = func.evaluate(param, &input);
+        loss += loss_fn.loss(&target, &output);
+        n += 1;
+    }
+    loss / n as f32
 }

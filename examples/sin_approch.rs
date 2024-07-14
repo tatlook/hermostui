@@ -1,7 +1,7 @@
 use std::fs;
 
 use hermostui::{
-    learning::SGD,
+    learning::{count_loss, SGD},
     linealg::{Tensor, Vector},
     modules::{Function, Linear, MSELoss, Sequence, Sigmoid, Translation, ELU},
 };
@@ -9,13 +9,13 @@ use hermostui::{
 fn approchfun(x: f32) -> f32 {
     static mut V: f32 = 1.0;
     unsafe {
-       // V += 0.000003;
+        // V += 0.000003;
         return (x * V).sin() * 6.0 - 1.0;
     }
 }
 
 fn main() {
-    let model = Sequence::new(vec![
+    let mut model = Sequence::new(vec![
         Box::new(Linear::new(1, 5)),
         Box::new(Translation::new(5)),
         Box::new(ELU { alpha: 1.0 }),
@@ -28,32 +28,26 @@ fn main() {
         Box::new(Linear::new(15, 1)),
         Box::new(Translation::new(1)),
     ]);
-    let param = Tensor::rand(model.param_shape());
-    let mut optim = SGD::new(Box::new(model), param, Box::new(MSELoss));
-
-    if let Ok(data) = fs::read("data/sin_approch.pkl") {
+    let mut optim = SGD::new();
+    let mut param: Tensor = if let Ok(data) = fs::read("data/sin_approch.pkl") {
         println!("Resuming training from data/sin_approch.pkl");
-        let param: Tensor = serde_pickle::from_slice(&data, Default::default()).unwrap();
-        optim.set_param(param);
+        serde_pickle::from_slice(&data, Default::default()).unwrap()
     } else {
         println!("Training from scratch");
-    }
-
+        Tensor::rand(model.param_shape())
+    };
+    let loss_fn = MSELoss;
+    let inputs = (0..50).map(|i| Vector(vec![i as f32 / 2.5 - 10.0]));
+    let targets = inputs.clone().map(|x| Vector(vec![approchfun(x.0[0])]));
     let lr = 3e-2;
     for i in 0..10000 {
-        optim.zero_grad();
-        for i in 0..50 {
-            let x = i as f32 / 2.5 - 10.0;
-            let y = approchfun(x);
-            optim.forward(Vector(vec![x]));
-            optim.backprop(Vector(vec![y]), Vector(vec![x]));
-        }
-        optim.step(lr);
+        optim.eat_batch(&mut model, &param, &loss_fn, inputs.clone(), targets.clone());
+        optim.step(&mut param, lr);
 
         if i % 100 == 0 {
-            let loss = optim.get_loss();
+            let loss = count_loss(&model, &param, &loss_fn, inputs.clone(), targets.clone());
             println!("epoch {i}, loss {loss}");
-            plot(&mut optim).unwrap();
+            plot(&model, &param).unwrap();
             if loss.is_nan() {
                 println!("loss is nan, something went wrong, exit");
                 return;
@@ -71,7 +65,7 @@ fn main() {
 }
 
 use plotters::prelude::*;
-fn plot(seq: &mut SGD) -> Result<(), Box<dyn std::error::Error>> {
+fn plot(model: &dyn Function, param: &Tensor) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new("data/plot.bmp", (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;
     let mut chart = ChartBuilder::on(&root)
@@ -96,7 +90,7 @@ fn plot(seq: &mut SGD) -> Result<(), Box<dyn std::error::Error>> {
         .draw_series(LineSeries::new(
             (-1000..=1000)
                 .map(|x| x as f32 / 100.0)
-                .map(|x| (x, seq.evaluate(Vector(vec![x])).0[0])),
+                .map(|x| (x, model.evaluate(param, &Vector(vec![x])).0[0])),
             &RED,
         ))?
         .label("Network")

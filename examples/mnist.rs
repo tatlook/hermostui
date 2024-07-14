@@ -29,7 +29,7 @@ fn main() {
         .test_set_length(TEST_SET_LENGTH)
         .finalize()
         .normalize();
-    let model = Sequence::new(vec![
+    let mut model = Sequence::new(vec![
         Box::new(Linear::new(MNIST_IMAGE_SIZE, 30)),
         Box::new(Translation::new(30)),
         Box::new(ReLU),
@@ -37,19 +37,16 @@ fn main() {
         Box::new(Translation::new(10)),
         Box::new(Sigmoid),
     ]);
-    let param = Tensor::rand(model.param_shape());
-    let mut optim = SGD::new(Box::new(model), param,
-        Box::new(CrossEntropyLoss),
-    );
-    if let Ok(data) = fs::read("data/mnist.pkl") {
+    let mut optim = SGD::new();
+    let mut param: Tensor = if let Ok(data) = fs::read("data/mnist.pkl") {
         println!("Resuming training from data/mnist.pkl");
-        let params: Tensor = serde_pickle::from_slice(&data, Default::default()).unwrap();
-        optim.set_param(params);
+        serde_pickle::from_slice(&data, Default::default()).unwrap()
     } else {
         println!("Training from scratch");
-    }
+        Tensor::rand(model.param_shape())
+    };
+    let loss_fn = CrossEntropyLoss;
     for i in 0..10000 {
-        optim.zero_grad();
         for _ in 0..5 {
             let j = rand::thread_rng().gen_range(0..TRAINING_SET_LENGTH) as usize;
             let mut target = [0.0; 10];
@@ -58,28 +55,34 @@ fn main() {
             let j = j * MNIST_IMAGE_SIZE;
             let input = &trn_img[j..(j + MNIST_IMAGE_SIZE)];
 
-            optim.forward(Vector(Vec::from(input)));
-            optim.backprop(Vector(Vec::from(target)), Vector(Vec::from(input)));
+            optim.eat_sample(
+                &mut model,
+                &param,
+                &loss_fn,
+                Vector(Vec::from(input)),
+                Vector(Vec::from(target)),
+            );
         }
-        optim.step(lr);
+        optim.step(&mut param, lr);
 
         if i % 100 == 0 {
-            let loss = optim.get_loss();
+            let loss = 0.0;
+            // let loss = count_loss(&mut model, &param, &loss_fn, inputs, targets);
             println!("epoch {i}, loss {loss}");
 
             println!(
                 "Train accuracy: {}/1000",
-                accurecy1000(&optim, &trn_img, &trn_lbl)
+                accurecy1000(&model, &param, &trn_img, &trn_lbl)
             );
             println!(
                 "Test accuracy: {}/1000",
-                accurecy1000(&optim, &tst_img, &tst_lbl)
+                accurecy1000(&model, &param,&tst_img, &tst_lbl)
             );
             println!("Check how well this model is in data/plot.bmp");
-            draw(&optim, &tst_img, &tst_lbl);
+            draw(&model, &param, &tst_img, &tst_lbl);
 
             println!("Saving params");
-            let binary = serde_pickle::to_vec(&optim.get_param(), Default::default()).unwrap();
+            let binary = serde_pickle::to_vec(&param, Default::default()).unwrap();
             if let Ok(mut file) = std::fs::File::create("data/mnist.pkl") {
                 file.write_all(&binary).unwrap();
             } else {
@@ -89,8 +92,8 @@ fn main() {
     }
 }
 
-fn model_output(seq: &SGD, image: &[f32]) -> usize {
-    let output = seq.evaluate(Vector(Vec::from(image)));
+fn model_output(model: &dyn Function, param: &Tensor, image: &[f32]) -> usize {
+    let output = model.evaluate(param, &Vector(Vec::from(image)));
 
     let mut max = 0.0;
     let mut max_i = 0;
@@ -103,12 +106,12 @@ fn model_output(seq: &SGD, image: &[f32]) -> usize {
     max_i
 }
 
-fn accurecy1000(seq: &SGD, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) -> usize {
+fn accurecy1000(model: &dyn Function, param: &Tensor, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) -> usize {
     let mut accurecy = 0;
     for i in 0..1000 {
         let i = i as usize;
         let img = &tst_img[i * MNIST_IMAGE_SIZE..i * MNIST_IMAGE_SIZE + MNIST_IMAGE_SIZE];
-        let model_says = model_output(seq, img) as u8;
+        let model_says = model_output(model, param, img) as u8;
         let actual = tst_lbl[i];
         if actual == model_says {
             accurecy += 1;
@@ -117,7 +120,7 @@ fn accurecy1000(seq: &SGD, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) -> usize {
     accurecy
 }
 
-fn draw(seq: &SGD, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) {
+fn draw(model: &dyn Function, param: &Tensor, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) {
     use plotters::prelude::*;
     let root = BitMapBackend::new("data/plot.bmp", (600, 600)).into_drawing_area();
     root.fill(&WHITE).unwrap();
@@ -131,7 +134,7 @@ fn draw(seq: &SGD, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) {
     for i in 0..100 {
         let j = thread_rng().gen_range(0..TEST_SET_LENGTH) as usize;
         let img = &tst_img[j * MNIST_IMAGE_SIZE..j * MNIST_IMAGE_SIZE + MNIST_IMAGE_SIZE];
-        let model_says = model_output(seq, img) as u8;
+        let model_says = model_output(model, param, img) as u8;
         let actual = tst_lbl[j];
 
         let offset_i = (i % 10, i / 10);
