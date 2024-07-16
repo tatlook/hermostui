@@ -1,7 +1,7 @@
 use std::fs;
 
 use hermostui::{
-    learning::{count_loss, SGD},
+    learning::{count_loss, Optimizer, SGD},
     linealg::{Tensor, Vector},
     modules::{Function, Linear, MSELoss, Sequence, Sigmoid, Translation, ELU},
 };
@@ -41,8 +41,14 @@ fn main() {
     let targets = inputs.clone().map(|x| Vector(vec![approchfun(x.0[0])]));
     let lr = 3e-2;
     for i in 0..10000 {
-        optim.eat_batch(&mut model, &param, &loss_fn, inputs.clone(), targets.clone());
-        optim.step(&mut param, lr);
+        optim.step(
+            &mut model,
+            &mut param,
+            &loss_fn,
+            inputs.clone(),
+            targets.clone(),
+            lr,
+        );
 
         if i % 100 == 0 {
             let loss = count_loss(&model, &param, &loss_fn, inputs.clone(), targets.clone());

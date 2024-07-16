@@ -1,7 +1,7 @@
 use std::{fs, io::Write};
 
 use hermostui::{
-    learning::SGD,
+    learning::{count_loss, Optimizer, SGD},
     linealg::{Tensor, Vector},
     modules::{CrossEntropyLoss, Function, Linear, ReLU, Sequence, Sigmoid, Translation},
 };
@@ -13,9 +13,7 @@ const MNIST_IMAGE_SIZE: usize = 28 * 28;
 const TRAINING_SET_LENGTH: u32 = 60000;
 const TEST_SET_LENGTH: u32 = 10000;
 
-fn main() {
-    let lr = 1e-1;
-
+fn main() {    
     let mnist::NormalizedMnist {
         trn_img,
         trn_lbl,
@@ -36,38 +34,42 @@ fn main() {
         Box::new(Linear::new(30, 10)),
         Box::new(Translation::new(10)),
         Box::new(Sigmoid),
-    ]);
-    let mut optim = SGD::new();
-    let mut param: Tensor = if let Ok(data) = fs::read("data/mnist.pkl") {
-        println!("Resuming training from data/mnist.pkl");
-        serde_pickle::from_slice(&data, Default::default()).unwrap()
+        ]);
+        let mut param: Tensor = if let Ok(data) = fs::read("data/mnist.pkl") {
+            println!("Resuming training from data/mnist.pkl");
+            serde_pickle::from_slice(&data, Default::default()).unwrap()
     } else {
         println!("Training from scratch");
         Tensor::rand(model.param_shape())
     };
+    let mut optim = SGD::new();
+    let lr = 1e-3;
     let loss_fn = CrossEntropyLoss;
+    let batch_size = 6;
     for i in 0..10000 {
-        for _ in 0..5 {
-            let j = rand::thread_rng().gen_range(0..TRAINING_SET_LENGTH) as usize;
+        let j = i % TRAINING_SET_LENGTH as usize;
+        let indexes = j..j + batch_size;
+        let inputs = indexes.clone().map(|j| {
+            Vector(Vec::from(
+                &trn_img[j * MNIST_IMAGE_SIZE..(j + 1) * MNIST_IMAGE_SIZE],
+            ))
+        });
+        let targets = indexes.map(|j| {
             let mut target = [0.0; 10];
             target[trn_lbl[j] as usize] = 1.0;
-
-            let j = j * MNIST_IMAGE_SIZE;
-            let input = &trn_img[j..(j + MNIST_IMAGE_SIZE)];
-
-            optim.eat_sample(
-                &mut model,
-                &param,
-                &loss_fn,
-                Vector(Vec::from(input)),
-                Vector(Vec::from(target)),
-            );
-        }
-        optim.step(&mut param, lr);
+            Vector(Vec::from(target))
+        });
+        optim.step(
+            &mut model,
+            &mut param,
+            &loss_fn,
+            inputs.clone(),
+            targets.clone(),
+            lr,
+        );
 
         if i % 100 == 0 {
-            let loss = 0.0;
-            // let loss = count_loss(&mut model, &param, &loss_fn, inputs, targets);
+            let loss = count_loss(&mut model, &param, &loss_fn, inputs, targets);
             println!("epoch {i}, loss {loss}");
 
             println!(
@@ -76,7 +78,7 @@ fn main() {
             );
             println!(
                 "Test accuracy: {}/1000",
-                accurecy1000(&model, &param,&tst_img, &tst_lbl)
+                accurecy1000(&model, &param, &tst_img, &tst_lbl)
             );
             println!("Check how well this model is in data/plot.bmp");
             draw(&model, &param, &tst_img, &tst_lbl);
@@ -106,7 +108,12 @@ fn model_output(model: &dyn Function, param: &Tensor, image: &[f32]) -> usize {
     max_i
 }
 
-fn accurecy1000(model: &dyn Function, param: &Tensor, tst_img: &Vec<f32>, tst_lbl: &Vec<u8>) -> usize {
+fn accurecy1000(
+    model: &dyn Function,
+    param: &Tensor,
+    tst_img: &Vec<f32>,
+    tst_lbl: &Vec<u8>,
+) -> usize {
     let mut accurecy = 0;
     for i in 0..1000 {
         let i = i as usize;

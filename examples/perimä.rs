@@ -1,13 +1,13 @@
 use std::fs;
 
 use hermostui::{
-    learning::{count_loss, TryStep},
+    learning::{count_loss, Genetic, Optimizer},
     linealg::{Tensor, Vector},
     modules::{Function, Linear, MSELoss, ReLU, Sequence, Translation},
 };
 
 fn approchfun(x: f32) -> f32 {
-    (x / 3.).cos() * 3.
+    (x / 1.).cos() * 3.
 }
 
 fn main() {
@@ -25,8 +25,8 @@ fn main() {
         println!("Training from scratch");
         Tensor::rand(model.param_shape())
     };
-    let optim = TryStep;
-    let lr = 1e-1;
+    let mut optim = Genetic::new(param.clone(), 20, 5, );
+    let mut lr = 1e-1;
     for i in 0..10000 {
         let inputs = (0..50).map(|i| Vector(vec![i as f32 / 2.5 - 10.0]));
         let targets = inputs.clone().map(|x| Vector(vec![approchfun(x.0[0])]));
@@ -41,6 +41,9 @@ fn main() {
 
         if i % 300 == 0 {
             let loss = count_loss(&model, &param, &MSELoss, inputs, targets);
+            if loss < 1.0 {
+                lr = 1e-3;
+            }
             println!("epoch {i}, loss {loss}");
             plot(&model, &param).unwrap();
             if loss.is_nan() {
