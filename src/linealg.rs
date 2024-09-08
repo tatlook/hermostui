@@ -414,7 +414,7 @@ impl Display for Tensor {
             Tensor::L(l) => {
                 writeln!(f, "Tensor [")?;
                 for t in l {
-                    writeln!(f, "Tensor {}", t)?;
+                    writeln!(f, "\t{}", t)?;
                 }
                 write!(f, "]")
             },
