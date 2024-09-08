@@ -93,6 +93,33 @@ impl Function for Translation {
     }
 }
 
+/// Let inner function's parameters be fixed.
+pub struct FixParam<T: Function>{
+    inner: T,
+    param: Tensor,
+}
+
+impl<T: Function> FixParam<T> {
+    pub fn new(inner: T, param: Tensor) -> Self {
+        Self { inner, param }
+    }
+}
+
+impl<T: Function> Function for FixParam<T> {
+    fn evaluate(&self, _: &Tensor, input: &Vector) -> Vector {
+        self.inner.evaluate(&self.param, input)
+    }
+
+    fn backward(&self, _: &Tensor, input: &Vector, delta: Vector) -> (Tensor, Vector) {
+        let (_, delta) = self.inner.backward(&self.param, input, delta);
+        (Tensor::N, delta)
+    }
+
+    fn param_shape(&self) -> Shape {
+        Shape::N
+    }
+}
+
 pub struct Dropout {
     p: f32,
     droped: Vec<bool>,
@@ -165,6 +192,28 @@ where
 
     fn param_shape(&self) -> Shape {
         Shape::N
+    }
+}
+
+pub struct Sine;
+
+impl ActivationFunction for Sine {
+    fn eval(&self, input: f32) -> f32 {
+        input.sin()
+    }
+    fn derivetive(&self, input: f32) -> f32 {
+        input.cos()
+    }
+}
+
+pub struct Cosine;
+
+impl ActivationFunction for Cosine {
+    fn eval(&self, input: f32) -> f32 {
+        input.cos()
+    }
+    fn derivetive(&self, input: f32) -> f32 {
+        -input.sin()
     }
 }
 
