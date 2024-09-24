@@ -2,7 +2,7 @@ use std::{iter::zip, vec};
 
 use rand::distributions::{Bernoulli, Distribution};
 
-use crate::linealg::{Matrix, Shape, Tensor, Vector};
+use crate::linealg::{Shape, Tensor, Vector};
 
 pub trait Function {
     /// Caculates output.
@@ -43,21 +43,9 @@ impl Function for Linear {
         matrix.apply(&input)
     }
     fn backward(&self, param: &Tensor, input: &Vector, delta: Vector) -> (Tensor, Vector) {
-        let mut param_grad: Vec<Vector> = vec![];
-        for a in input.0.iter() {
-            let mut grad: Vec<f32> = vec![];
-            for d in delta.0.iter() {
-                grad.push(d * a);
-            }
-            param_grad.push(Vector(grad));
-        }
-        let param_grad = Matrix::new(param_grad);
-
+        let param_grad = delta.outer(input);
         let matrix = param.clone().as_matrix();
-        let matrix_t = matrix.transpose();
-        assert_eq!(param_grad.shape(), matrix.shape());
-        let delta = matrix_t.apply(&delta);
-        (Tensor::M(param_grad), delta)
+        (Tensor::M(param_grad), matrix.apply_transposed(&delta))
     }
     fn param_shape(&self) -> Shape {
         Shape::M(self.to, self.from)
@@ -93,8 +81,45 @@ impl Function for Translation {
     }
 }
 
+pub struct Softmax {
+    // "A vector that got exponetiated"
+    exped: Vector,
+    expsum: f32,
+}
+
+impl Softmax {
+    pub fn new() -> Self {
+        Self { exped: Vector(vec![]), expsum: 0.0 }
+    }
+}
+
+impl Function for Softmax {
+    fn evaluate(&self, _param: &Tensor, input: &Vector) -> Vector {
+        let exped = Vector(input.0.iter().map(|x| x.exp()).collect());
+        let expsum = exped.0.iter().sum::<f32>();
+        exped * (1. / expsum)
+    }
+
+    fn forward(&mut self, _param: &Tensor, input: &Vector) -> Vector {
+        self.exped = Vector(input.0.iter().map(|x| x.exp()).collect());
+        self.expsum = self.exped.0.iter().sum::<f32>();
+        self.exped.clone() * (1. / self.expsum)
+    }
+
+    fn backward(&self, _param: &Tensor, _input: &Vector, delta: Vector) -> (Tensor, Vector) {
+        let matrix = self.exped.outer(&self.exped) * (-1. / self.expsum.powi(2));
+        let second_term = matrix.apply(&delta);
+        let first_term = delta.hadamard(&self.exped) * (1. / self.expsum);
+        (Tensor::N, first_term + &second_term)
+    }
+
+    fn param_shape(&self) -> Shape {
+        Shape::N
+    }
+}
+
 /// Let inner function's parameters be fixed.
-pub struct FixParam<T: Function>{
+pub struct FixParam<T: Function> {
     inner: T,
     param: Tensor,
 }

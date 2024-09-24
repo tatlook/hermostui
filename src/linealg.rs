@@ -26,6 +26,18 @@ impl Vector {
         sum
     }
 
+    pub fn outer(&self, rhs: &Self) -> Matrix {
+        let mut matrix: Vec<Vector> = vec![];
+        for a in rhs.0.iter() {
+            let mut vec: Vec<f32> = vec![];
+            for b in self.0.iter() {
+                vec.push(b * a);
+            }
+            matrix.push(Vector(vec));
+        }
+        Matrix::new(matrix)
+    }
+
     pub fn len_sq(&self) -> f32 {
         self.dot(self)
     }
@@ -123,31 +135,18 @@ impl Matrix {
         vector
     }
 
-    pub fn transpose(&self) -> Self {
-        let mut data = vec![Vector(vec![0.0; self.0.len()]); self.0[0].size()];
-        for i in 0..self.0.len() {
-            for j in 0..self.0[i].size() {
-                data[j].0[i] = self.0[i].0[j];
-            }
+    /// First transpose this matrix, then apply the linear transformation
+    pub fn apply_transposed(self, rhs: &Vector) -> Vector {
+        assert_eq!(self.0[0].size(), rhs.size());
+        let mut vector = Vector(vec![0.0; self.0.len()]);
+        for (i, v) in self.0.into_iter().enumerate() {
+            vector.0[i] = v.dot(rhs);
         }
-        Self(data)
+        vector
     }
 
     pub fn shape(&self) -> Shape {
         Shape::M(self.0[0].size(), self.0.len()) // TODO: self.0.len() can be zero
-    }
-
-    pub fn mul_assign_scalar(&mut self, rhs: f32) {
-        for i in 0..self.0.len() {
-            for j in 0..self.0[i].size() {
-                self.0[i].0[j] *= rhs;
-            }
-        }
-    }
-
-    pub fn mul_scalar(mut self, rhs: f32) -> Self {
-        self.mul_assign_scalar(rhs);
-        self
     }
 }
 
@@ -185,6 +184,22 @@ impl Sub<&Self> for Matrix {
     type Output = Self;
     fn sub(mut self, rhs: &Self) -> Self::Output {
         self -= rhs;
+        self
+    }
+}
+
+impl MulAssign<f32> for Matrix {
+    fn mul_assign(&mut self, rhs: f32) {
+        for v in &mut self.0 {
+            *v *= rhs;
+        }
+    }
+}
+
+impl Mul<f32> for Matrix {
+    type Output = Self;
+    fn mul(mut self, rhs: f32) -> Self::Output {
+        self *= rhs;
         self
     }
 }
@@ -386,7 +401,7 @@ impl MulAssign<f32> for Tensor {
             Tensor::N => return,
             Tensor::S(s) => *s *= rhs,
             Tensor::V(v) => *v *= rhs,
-            Tensor::M(m) => m.mul_assign_scalar(rhs),
+            Tensor::M(m) => *m *= rhs,
             Tensor::L(l) => {
                 for t in l {
                     *t *= rhs;

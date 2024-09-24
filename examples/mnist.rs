@@ -3,7 +3,7 @@ use std::{fs, io::Write};
 use hermostui::{
     learning::{count_loss, Optimizer, SGD},
     linealg::{Tensor, Vector},
-    modules::{CrossEntropyLoss, Function, Linear, ReLU, Sequence, Sigmoid, Translation},
+    modules::{CrossEntropyLoss, Function, Linear, ReLU, Sequence, Softmax, Translation},
 };
 use mnist::MnistBuilder;
 
@@ -13,7 +13,7 @@ const MNIST_IMAGE_SIZE: usize = 28 * 28;
 const TRAINING_SET_LENGTH: u32 = 60000;
 const TEST_SET_LENGTH: u32 = 10000;
 
-fn main() {    
+fn main() {
     let mnist::NormalizedMnist {
         trn_img,
         trn_lbl,
@@ -33,19 +33,19 @@ fn main() {
         Box::new(ReLU),
         Box::new(Linear::new(30, 10)),
         Box::new(Translation::new(10)),
-        Box::new(Sigmoid),
-        ]);
-        let mut param: Tensor = if let Ok(data) = fs::read("data/mnist.pkl") {
-            println!("Resuming training from data/mnist.pkl");
-            serde_pickle::from_slice(&data, Default::default()).unwrap()
+        Box::new(Softmax::new()),
+    ]);
+    let mut param: Tensor = if let Ok(data) = fs::read("data/mnist.pkl") {
+        println!("Resuming training from data/mnist.pkl");
+        serde_pickle::from_slice(&data, Default::default()).unwrap()
     } else {
         println!("Training from scratch");
         Tensor::rand(model.param_shape())
     };
     let mut optim = SGD::new();
-    let lr = 1e-3;
+    let lr = 1e-1;
     let loss_fn = CrossEntropyLoss;
-    let batch_size = 6;
+    let batch_size = 30;
     for i in 0..10000 {
         let j = i % TRAINING_SET_LENGTH as usize;
         let indexes = j..j + batch_size;
