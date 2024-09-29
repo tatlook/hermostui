@@ -125,6 +125,15 @@ impl Matrix {
         &mut self.0
     }
 
+    pub fn hadamard(self, rhs: &Matrix) -> Matrix {
+        assert_eq!(self.shape(), rhs.shape());
+        Matrix::new(
+            zip(self.0, &rhs.0)
+                .map(|(v1, v2)| v1.hadamard(v2))
+                .collect(),
+        )
+    }
+
     /// Applies the linear transformation to the vector
     pub fn apply(self, rhs: &Vector) -> Vector {
         assert_eq!(self.0.len(), rhs.size());
@@ -325,7 +334,7 @@ impl Tensor {
                     v.push(rng.gen_range(range.clone()));
                 }
                 Tensor::V(Vector(v))
-            },
+            }
             Shape::M(r, c) => {
                 let mut li = vec![];
                 for _ in 0..c {
@@ -336,8 +345,47 @@ impl Tensor {
                     li.push(Vector(v));
                 }
                 Tensor::M(Matrix(li))
-            },
+            }
             Shape::L(l) => Tensor::L(l.iter().map(|s| Tensor::rand(s.clone())).collect()),
+        }
+    }
+
+    // TODO: impl IntoIterator for Tensor
+    pub fn iterover_assign(&mut self, map: &dyn Fn(f32) -> f32) {
+        match self {
+            Tensor::N => return,
+            Tensor::S(s) => *s = map(*s),
+            Tensor::V(v) => {
+                for x in &mut v.0 {
+                    *x = map(*x)
+                }
+            }
+            Tensor::M(m) => {
+                for v in &mut m.0 {
+                    for x in &mut v.0 {
+                        *x = map(*x)
+                    }
+                }
+            }
+            Tensor::L(l) => {
+                for t in l {
+                    t.iterover_assign(map);
+                }
+            }
+        }
+    }
+
+    // TODO: after I got impl IntoIterator for Tensor done, switch to zip(self, rhs).map
+    pub fn hadamard(self, rhs: &Tensor) -> Tensor {
+        match (self, rhs) {
+            (Tensor::N, Tensor::N) => Tensor::N,
+            (Tensor::S(s1), Tensor::S(s2)) => Tensor::S(s1 * s2),
+            (Tensor::V(v1), Tensor::V(v2)) => Tensor::V(v1.hadamard(v2)),
+            (Tensor::M(m1), Tensor::M(m2)) => Tensor::M(m1.hadamard(m2)),
+            (Tensor::L(l1), Tensor::L(l2)) => {
+                Tensor::L(zip(l1, l2).map(|(t1, t2)| t1.hadamard(t2)).collect())
+            }
+            _ => panic!(),
         }
     }
 }
@@ -380,7 +428,7 @@ impl SubAssign<&Self> for Tensor {
                 for (t1, t2) in zip(l1, l2) {
                     *t1 -= t2;
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }
@@ -388,7 +436,7 @@ impl SubAssign<&Self> for Tensor {
 
 impl Sub<&Self> for Tensor {
     type Output = Self;
-    
+
     fn sub(mut self, rhs: &Self) -> Self::Output {
         self -= rhs;
         self

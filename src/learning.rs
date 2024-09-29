@@ -18,6 +18,8 @@ pub trait Optimizer {
 }
 
 pub struct SGD {
+    // Actual gradient is param_grad / batch_size
+    // Should always use via take_gradient()
     param_grad: Option<Tensor>,
     batch_size: usize,
 }
@@ -59,11 +61,16 @@ impl SGD {
         if let Some(param_grad_sum) = &mut self.param_grad {
             *param_grad_sum += &grad;
         } else {
-            assert!(self.batch_size == 0);
+            debug_assert_eq!(self.batch_size, 0);
             self.param_grad = Some(grad);
         }
 
         self.batch_size += 1;
+    }
+    fn take_gradient(&mut self) -> Tensor {
+        let grad = self.param_grad.take().unwrap() * (1.0 / self.batch_size as f32);
+        self.batch_size = 0;
+        grad
     }
 }
 
@@ -78,13 +85,71 @@ impl Optimizer for SGD {
         lr: f32,
     ) {
         self.eat_batch(func, param, loss_fn, inputs, targets);
+        let param_grad = self.take_gradient();
+        *param -= &(param_grad * lr);
+    }
+}
 
-        if let Some(param_grad) = self.param_grad.take() {
-            *param -= &(param_grad * (lr / self.batch_size as f32));
-        } else {
-            unreachable!()
+pub struct Adam {
+    beta_1: f32,
+    beta_2: f32,
+    epsilon: f32,
+    sgd: SGD,
+    t: i32,
+    moment_1: Tensor,
+    moment_2: Tensor,
+}
+
+impl Adam {
+    pub fn new(beta_1: f32, beta_2: f32, epsilon: f32) -> Self {
+        assert!(0.0 < beta_1 && beta_1 < 1.0, "beta_1 must be in (0, 1)");
+        assert!(0.0 < beta_2 && beta_2 < 1.0, "beta_2 must be in (0, 1)");
+        assert!(epsilon > 0.0, "epsilon must be positive");
+        Self {
+            beta_1,
+            beta_2,
+            epsilon,
+            sgd: SGD::new(),
+            t: 0,
+            moment_1: Tensor::N,
+            moment_2: Tensor::N,
         }
-        self.batch_size = 0;
+    }
+}
+
+impl Default for Adam {
+    fn default() -> Self {
+        Adam::new(0.9, 0.999, 1e-8)
+    }
+}
+
+impl Optimizer for Adam {
+    fn step(
+        &mut self,
+        func: &mut dyn Function,
+        param: &mut Tensor,
+        loss_fn: &dyn LossFunction,
+        inputs: impl Iterator<Item = Vector> + Clone,
+        targets: impl Iterator<Item = Vector> + Clone,
+        lr: f32,
+    ) {
+        if self.t == 0 {
+            self.moment_1 = Tensor::zeroes(param.shape());
+            self.moment_2 = Tensor::zeroes(param.shape());
+        }
+        self.t += 1;
+        self.sgd.eat_batch(func, param, loss_fn, inputs, targets);
+        let mut grad = self.sgd.take_gradient();
+
+        self.moment_1 *= self.beta_1;
+        self.moment_1 += &(grad.clone() * (1.0 - self.beta_1));
+        self.moment_2 *= self.beta_2;
+        grad.iterover_assign(&|x| x * x * (1.0 - self.beta_2));
+        self.moment_2 += &grad;
+        let lr = lr * (1.0 - self.beta_2.powi(self.t)).sqrt() / (1.0 - self.beta_1.powi(self.t));
+        let mut correct_2 = self.moment_2.clone();
+        correct_2.iterover_assign(&|x| 1.0 / (x.sqrt() + self.epsilon) * lr);
+        *param -= &correct_2.hadamard(&self.moment_1);
     }
 }
 
